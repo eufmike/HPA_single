@@ -8,15 +8,15 @@ from torch.utils.data.dataset import Dataset
 from skimage.io import imread, imsave
 
 class HPASCDataset(Dataset):
-    def __init__(self, input_csv, root, split, transform, n_class = 19, debug_size = None):
+    def __init__(self, input_csv, root, split, transform, input_ch = 4, n_class = 19, debug_size = None):
 
         self.transform = transform
         df_input = pd.read_csv(input_csv)
         df_input = df_input[:debug_size]
         self.imgs_stem = df_input['ID'].apply(lambda x: Path(root).joinpath(x))
         self.lbls = df_input['Label'] 
-        # self.channels = ['blue', 'green', 'red', 'yellow']
-        self.channels = ['blue', 'green', 'red']
+        self.channels = ['blue', 'green', 'red', 'yellow']
+        self.channels = self.channels[:input_ch]
         self.n_class = n_class
         
         assert len(self.imgs_stem) == len(self.lbls), 'mismatched length!'
