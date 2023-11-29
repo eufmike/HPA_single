@@ -14,9 +14,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 
-from func.HPASCDataset import HPASCDataset
+from func.HPASCDataset import HPASCDataset, TrDataset
 from func.nets import simple_net
-from func.transform import transform
 
 class Trainer:
     def __init__(
@@ -46,7 +45,7 @@ class Trainer:
         
         timestamp = now.strftime("%d_%m_%Y_%H_%M")
         self.data_dir = data_dir
-        log_dir = self.data_dir.joinpath('log', timestamp)
+        log_dir = self.data_dir.joinpath('training_log', timestamp)
         self.writer = SummaryWriter(log_dir)
 
         checkpoint_dir = self.data_dir.joinpath('checkpoints', timestamp)
@@ -145,22 +144,46 @@ class Trainer:
                 self._run_val(epoch)
         print(self.best_metric_epoch, self.min_val_loss)
 
-def load_train_objs(input_ch, train_csv, train_dataset_dir, debug_size = None):
-    HPA_dataset = HPASCDataset(
-                    input_csv = train_csv, 
-                    root = train_dataset_dir, 
-                    split = 'train', 
-                    transform = transform,
-                    input_ch = input_ch, 
+def load_train_objs(input_ch_ct, 
+                    input_csv, 
+                    data_root, 
+                    transform_compose = 'default', 
+                    split_ratio = [0.9, 0.1], 
                     n_class = 19, 
-                    debug_size = debug_size,
-                    )
-    torch.manual_seed(1947)
-    train_ds, val_ds = random_split(HPA_dataset, [0.9, 0.1])
+                    debug_size = None, 
+                    deterministic = False,
+                    ):
+
+    # check the transform_compose type to decide if transform will be performed before or after random_split
+    if isinstance(transform_compose, str):
+        transform = __import__('func.transform', fromlist=[transform_compose])
+    elif isinstance(transform_compose, dict):
+        transform = None
+        train_transform = __import__('func.transform', fromlist=[transform_compose['train']])
+        val_transform = __import__('func.transform', fromlist=[transform_compose['val']])
+
+    HPA_dataset = HPASCDataset(
+                        input_csv = input_csv, 
+                        root = data_root, 
+                        input_ch_ct = input_ch_ct,
+                        transform = transform, 
+                        n_class = n_class, 
+                        debug_size = debug_size,
+                        )
+    
+    if deterministic: torch.manual_seed(1947)
+    train_ds, val_ds = random_split(HPA_dataset, split_ratio)
+    
+    if isinstance(transform_compose, dict):
+        train_ds = TrDataset(train_ds, train_transform)
+        val_ds = TrDataset(val_ds, val_transform)
+    
     print("train_ds size:", len(train_ds))
     print("val_ds size:", len(val_ds))
+    
+    # load model
+    model = simple_net(input_ch_ct)
 
-    model = simple_net(input_ch)
     return train_ds, val_ds, model
 
 def prepare_dataloader(dataset: Dataset, batch_size: int, num_workers: int):
