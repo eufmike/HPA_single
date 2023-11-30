@@ -54,7 +54,7 @@ class HPASCDataset(Dataset):
             img_tmp = img_tmp.resize((2048, 2048))
             img_tmp = np.array(img_tmp)
             img.append(img_tmp)
-        img = np.stack(img, axis = 0)
+        img = np.stack(img, axis = 2)
         img = img.astype('float32') / 255.0
         # print(img.shape)
         

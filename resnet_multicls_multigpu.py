@@ -62,7 +62,8 @@ def main(rank: int,
     # define transform compose, the argument can be a string as single input, ex: 'default'
     # or a dictionary as multiple inputs, ex: {'train': 'v1_train', 'val': 'v1_val'} 
     # transform_compose = 'default'
-    transform_compose = {'train': 'v1_train', 'val': 'v1_val'}
+    tf_compose = 'tv_v1'
+    transform_compose = {'train': f'{tf_compose}_train', 'val': f'{tf_compose}_val'}
 
     # setup the process groups
     logger.info('setup multiple GPUs')
