@@ -17,15 +17,23 @@ class TrDataset(Dataset):
     return len(self.base)
 
   def __getitem__(self, idx):
-    x, y = self.base[idx]
+    data = self.base[idx]
+    x = data['image']
+    y = data['label']
     return self.transform(x), y
 
 class HPASCDataset(Dataset):
-    def __init__(self, input_csv, root, transform = None, input_ch_ct = 'all', n_class = 19, debug_size = None):
+    def __init__(self, input_csv, root, transform = None, input_ch_ct = 'all', n_class = 19, debug_size = None, debug_random = True):
 
         self.transform = transform
         df_input = pd.read_csv(input_csv)
-        df_input = df_input[:debug_size]
+        if debug_size is not None: 
+            if debug_random: 
+                df_input = df_input.sample(debug_size)
+                df_input.reset_index(inplace=True, drop=True)
+            else:
+                df_input = df_input[:debug_size]
+
         self.imgs_stem = df_input['ID'].apply(lambda x: Path(root).joinpath(x))
         self.lbls = df_input['Label'] 
         self.channels = ['blue', 'green', 'red', 'yellow']
@@ -49,6 +57,7 @@ class HPASCDataset(Dataset):
             img_tmp = imread(imgpath_tmp)
             img.append(img_tmp)
         img = np.stack(img, axis = 2)
+        # img = img.astype('float32') / 255.0
         
         lbl_str = self.lbls[index]
         lbl = np.zeros(self.n_class, dtype='float32')

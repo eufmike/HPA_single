@@ -6,12 +6,15 @@ now = datetime.now()
 
 import torch
 import torchvision
+torchvision.disable_beta_transforms_warning()
 import torch.nn as nn
 import torch.optim as optim
 
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+from torchvision.transforms import Compose, ToTensor, Resize, v2
+
 from torch.utils.tensorboard import SummaryWriter
 
 from func.HPASCDataset import HPASCDataset, TrDataset
@@ -43,7 +46,7 @@ class Trainer:
         self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max = max_epochs)
         self.criterion = nn.BCEWithLogitsLoss()
         
-        timestamp = now.strftime("%d_%m_%Y_%H_%M")
+        timestamp = now.strftime("%Y_%m_%d_%H_%M")
         self.data_dir = data_dir
         log_dir = self.data_dir.joinpath('training_log', timestamp)
         self.writer = SummaryWriter(log_dir)
@@ -146,27 +149,31 @@ class Trainer:
 
 def load_train_objs(input_ch_ct, 
                     input_csv, 
-                    data_root, 
-                    transform_compose = 'default', 
+                    data_root,
+                    # transform_compose = 'default', 
                     split_ratio = [0.9, 0.1], 
                     n_class = 19, 
                     debug_size = None, 
                     deterministic = False,
+                    mean = None, std = None, 
+                    model_input_size = (1024, 1024)
                     ):
 
-    # check the transform_compose type to decide if transform will be performed before or after random_split
-    if isinstance(transform_compose, str):
-        transform = __import__('func.transform', fromlist=[transform_compose])
-    elif isinstance(transform_compose, dict):
-        transform = None
-        train_transform = __import__('func.transform', fromlist=[transform_compose['train']])
-        val_transform = __import__('func.transform', fromlist=[transform_compose['val']])
+    if mean is None: mean = 0.5
+    if std is None: mean = 0.5
+
+    tf_dataset = Compose(
+        [
+            ToTensor(), 
+            v2.Resize(size = model_input_size, antialias = True),
+        ]
+    )
 
     HPA_dataset = HPASCDataset(
                         input_csv = input_csv, 
                         root = data_root, 
                         input_ch_ct = input_ch_ct,
-                        transform = transform, 
+                        transform = tf_dataset, 
                         n_class = n_class, 
                         debug_size = debug_size,
                         )
@@ -174,24 +181,40 @@ def load_train_objs(input_ch_ct,
     if deterministic: torch.manual_seed(1947)
     train_ds, val_ds = random_split(HPA_dataset, split_ratio)
     
-    if isinstance(transform_compose, dict):
-        train_ds = TrDataset(train_ds, train_transform)
-        val_ds = TrDataset(val_ds, val_transform)
+    tv_v1_train = Compose(
+            [   
+                v2.RandomResizedCrop(size = model_input_size, antialias=True),
+                v2.RandomHorizontalFlip(p = 0.5),
+                v2.RandomVerticalFlip(p = 0.5),
+                v2.RandomRotation(degrees=(0, 180)),
+                v2.Normalize(mean = mean, std = std),
+            ]
+        )
+        
+    tv_v1_val = Compose(
+            [   
+                v2.Resize(size = model_input_size, antialias = True),
+                v2.Normalize(mean = mean, std = std),
+            ]
+        )
+
+    train_ds = TrDataset(train_ds, tv_v1_train)
+    val_ds = TrDataset(val_ds, tv_v1_val)
     
     print("train_ds size:", len(train_ds))
     print("val_ds size:", len(val_ds))
     
     # load model
-    model = simple_net(input_ch_ct)
+    model = simple_net(input_ch_ct, model_input_size)
 
     return train_ds, val_ds, model
 
 def prepare_dataloader(dataset: Dataset, batch_size: int, num_workers: int):
     return DataLoader(
         dataset,
-        batch_size=batch_size,
-        pin_memory=True,
-        num_workers=num_workers,
-        shuffle=False,
-        sampler=DistributedSampler(dataset)
+        batch_size = batch_size,
+        pin_memory = True,
+        num_workers = num_workers,
+        shuffle = False,
+        sampler = DistributedSampler(dataset)
     )

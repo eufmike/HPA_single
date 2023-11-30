@@ -1,15 +1,7 @@
 # %%
 import os, sys
 from pathlib import Path
-# from tqdm import tqdm
-# import pandas as pd
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from PIL import Image
-# import logging
-
 import torch
-# import torch.nn as nn
 
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -59,11 +51,12 @@ def main(rank: int,
     debug_size = 100
     debug_size = None
 
-    # define transform compose, the argument can be a string as single input, ex: 'default'
-    # or a dictionary as multiple inputs, ex: {'train': 'v1_train', 'val': 'v1_val'} 
-    # transform_compose = 'default'
-    tf_compose = 'tv_v1'
-    transform_compose = {'train': f'{tf_compose}_train', 'val': f'{tf_compose}_val'}
+    mean = [0.0540, 0.0530, 0.0804, 0.0806]
+    std = [0.1420, 0.0831, 0.1272, 0.1229]
+    if isinstance(input_ch_ct, int): 
+        mean = mean[:input_ch_ct]
+    elif isinstance(input_ch_ct, list): 
+        std = [std[ch] for ch in input_ch_ct]
 
     # setup the process groups
     logger.info('setup multiple GPUs')
@@ -75,11 +68,11 @@ def main(rank: int,
                             input_ch_ct = input_ch_ct,
                             input_csv = train_csv, 
                             data_root = train_dataset_dir,
-                            transform_compose = transform_compose, 
                             debug_size = debug_size, 
-                            deterministic = True)
+                            deterministic = True, 
+                            mean = mean, std = std)
     
-    '''
+    
     optimizer = torch.optim.Adam(model.parameters(), lr = lr, weight_decay = weight_decay)
 
     train_loader = prepare_dataloader(train_ds, batch_size, num_workers)
@@ -96,7 +89,7 @@ def main(rank: int,
     
     trainer.train(max_epochs)
     
-    '''
+    
     print('Finished Training')
     cleanup()
 
