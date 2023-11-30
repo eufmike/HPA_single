@@ -42,21 +42,13 @@ class HPASCDataset(Dataset):
         assert len(self.imgs_stem) == len(self.lbls), 'mismatched length!'
 
     def __getitem__(self, index):
-        # print(index)
         imgpath_noext = self.imgs_stem[index]
         img = []
-        # print(self.channels)
         for ch in self.channels:
             imgpath_tmp = Path(f'{imgpath_noext}_{ch}.png')
-            # print(imgpath_tmp)
-            # img_tmp = Image.open(imgpath_tmp).convert('gray')
-            img_tmp = Image.open(imgpath_tmp)
-            img_tmp = img_tmp.resize((2048, 2048))
-            img_tmp = np.array(img_tmp)
+            img_tmp = imread(imgpath_tmp)
             img.append(img_tmp)
         img = np.stack(img, axis = 2)
-        img = img.astype('float32') / 255.0
-        # print(img.shape)
         
         lbl_str = self.lbls[index]
         lbl = np.zeros(self.n_class, dtype='float32')
@@ -64,12 +56,13 @@ class HPASCDataset(Dataset):
             lbl_tmp = int(lbl_tmp)
             assert lbl_tmp < self.n_class, 'label out of range!'
             lbl[lbl_tmp] = 1
-        # print(lbl)
 
         if not self.transform is None:
             img = self.transform(img)
 
-        return img, lbl
+        data = {'image': img, 'label': lbl}
+
+        return data
         
     def __len__(self):
         return len(self.imgs_stem)
