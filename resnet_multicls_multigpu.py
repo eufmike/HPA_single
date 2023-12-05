@@ -96,17 +96,10 @@ def main(rank,
 
 if __name__ == '__main__':
     # suppose we have 3 gpus
-    
-    # world_size = 2
-    # mp.spawn(
-    #     main, 
-    #     args=([world_size]), 
-    #     nprocs=world_size
-    # )
     # devices = [0, 1]
     devices = [0]
     os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(x) for x in devices])
-    
+
     world_size = len(devices)
     mp.spawn(
         main, 
