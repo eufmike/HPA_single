@@ -18,7 +18,7 @@ from torchvision.transforms import Compose, ToTensor, Resize, v2
 from torch.utils.tensorboard import SummaryWriter
 
 from func.HPASCDataset import HPASCDataset, TrDataset
-from func.nets import simple_net
+from func.nets import simple_net, custom_resnet
 
 class Trainer:
     def __init__(
@@ -68,7 +68,7 @@ class Trainer:
         return loss
 
     def _run_epoch(self, epoch):
-        b_sz = len(next(iter(self.train_loader))[0])
+        b_sz = len(next(iter(self.train_loader))['image'][0])
         print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_loader)}")
         self.train_loader.sampler.set_epoch(epoch)
 
@@ -76,7 +76,9 @@ class Trainer:
         step = 0
         for i, batch_data  in tqdm(enumerate(self.train_loader, 0)):
             step_start = time.time()
-            inputs, labels = batch_data 
+            # inputs, labels = batch_data
+            inputs = batch_data['image']
+            labels = batch_data['label']
             inputs = inputs.to(self.gpu_id)
             labels = labels.to(self.gpu_id)
             loss = self._run_batch(inputs, labels)
@@ -109,7 +111,9 @@ class Trainer:
         with torch.no_grad():
             val_step = 0
             for val_data in self.val_loader:
-                val_inputs, val_labels = val_data
+                # val_inputs, val_labels = val_data
+                val_inputs = val_data['image']
+                val_labels = val_data['label']
                 val_inputs = val_inputs.to(self.gpu_id)
                 val_labels = val_labels.to(self.gpu_id)
                 val_outputs = self.model(val_inputs)
@@ -151,9 +155,9 @@ def load_train_objs(input_ch_ct,
                     input_csv, 
                     data_root,
                     # transform_compose = 'default', 
-                    split_ratio = [0.9, 0.1], 
+                    split_ratio = [0.8, 0.1, 0.1], 
                     n_class = 19, 
-                    debug_size = None, 
+                    sample_size = None, 
                     deterministic = False,
                     mean = None, std = None, 
                     model_input_size = (1024, 1024)
@@ -175,11 +179,11 @@ def load_train_objs(input_ch_ct,
                         input_ch_ct = input_ch_ct,
                         transform = tf_dataset, 
                         n_class = n_class, 
-                        debug_size = debug_size,
+                        sample_size = sample_size,
                         )
     
     if deterministic: torch.manual_seed(1947)
-    train_ds, val_ds = random_split(HPA_dataset, split_ratio)
+    train_ds, val_ds, test_ds = random_split(HPA_dataset, split_ratio)
     
     tv_v1_train = Compose(
             [   
@@ -200,21 +204,33 @@ def load_train_objs(input_ch_ct,
 
     train_ds = TrDataset(train_ds, tv_v1_train)
     val_ds = TrDataset(val_ds, tv_v1_val)
-    
+    test_ds = TrDataset(test_ds, tv_v1_val)
+
     print("train_ds size:", len(train_ds))
     print("val_ds size:", len(val_ds))
+    print("val_ds size:", len(test_ds))
     
     # load model
-    model = simple_net(input_ch_ct, model_input_size)
+    # model = simple_net(input_ch_ct, model_input_size)
+    model = custom_resnet(input_ch_ct)
+    return train_ds, val_ds, test_ds, model
 
-    return train_ds, val_ds, model
-
-def prepare_dataloader(dataset: Dataset, batch_size: int, num_workers: int):
-    return DataLoader(
-        dataset,
-        batch_size = batch_size,
-        pin_memory = True,
-        num_workers = num_workers,
-        shuffle = False,
-        sampler = DistributedSampler(dataset)
-    )
+def prepare_dataloader(dataset: Dataset, batch_size: int, num_workers: int, sampler = 'DDP'):
+    if sampler == 'DDP':
+        dataloader = DataLoader(
+            dataset,
+            batch_size = batch_size,
+            pin_memory = True,
+            num_workers = num_workers,
+            shuffle = False,
+            sampler = DistributedSampler(dataset)
+        )
+    elif sampler is None:
+        dataloader = DataLoader(
+            dataset,
+            batch_size = batch_size,
+            pin_memory = True,
+            num_workers = num_workers,
+            shuffle = False,
+        )
+    return dataloader

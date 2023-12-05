@@ -18,21 +18,22 @@ class TrDataset(Dataset):
 
   def __getitem__(self, idx):
     data = self.base[idx]
-    x = data['image']
-    y = data['label']
-    return self.transform(x), y
+    img = data['image']
+    lbl = data['label']
+    data = {'image': img, 'label': lbl}
+    return data
 
 class HPASCDataset(Dataset):
-    def __init__(self, input_csv, root, transform = None, input_ch_ct = 'all', n_class = 19, debug_size = None, debug_random = True):
+    def __init__(self, input_csv, root, transform = None, input_ch_ct = 'all', n_class = 19, sample_size = None, sample_random = True):
 
         self.transform = transform
         df_input = pd.read_csv(input_csv)
-        if debug_size is not None: 
-            if debug_random: 
-                df_input = df_input.sample(debug_size)
+        if sample_size is not None: 
+            if sample_random: 
+                df_input = df_input.sample(sample_size)
                 df_input.reset_index(inplace=True, drop=True)
             else:
-                df_input = df_input[:debug_size]
+                df_input = df_input[:sample_size]
 
         self.imgs_stem = df_input['ID'].apply(lambda x: Path(root).joinpath(x))
         self.lbls = df_input['Label'] 
