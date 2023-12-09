@@ -1,8 +1,9 @@
 # %%
 import os, sys
 from pathlib import Path
-import torch
+import argparse
 
+import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from func.trainer import load_train_objs, prepare_dataloader, Trainer
@@ -17,11 +18,11 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
-def main(rank, 
-         world_size, 
-         save_every = None, 
-         max_epochs = None, 
-         batch_size = None):
+def dltrain(rank, 
+            world_size, 
+            save_every = None, 
+            max_epochs = None, 
+            batch_size = None):
 
     # create log
     prj_dir = Path('/dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data')
@@ -49,9 +50,8 @@ def main(rank,
     weight_decay = 1e-5
     max_epochs = 100
     val_interval = 3
-    save_every = 1
     batch_size = 10
-    num_workers = 7
+    num_workers = 8
     sample_size = 5000
     # sample_size = None
     
@@ -70,6 +70,7 @@ def main(rank,
                             input_ch_ct = input_ch_ct,
                             input_csv = train_csv, 
                             data_root = train_dataset_dir,
+                            logger = logger,
                             split_ratio = split_ratio,
                             sample_size = sample_size, 
                             deterministic = True, 
@@ -87,6 +88,7 @@ def main(rank,
                 gpu_id = rank, 
                 max_epochs = max_epochs,
                 val_interval = val_interval,
+                logger = logger,
                 data_dir = prj_dir)
     
     trainer.train(max_epochs)
@@ -94,15 +96,24 @@ def main(rank,
     print('Finished Training')
     cleanup()
 
-if __name__ == '__main__':
-    # suppose we have 3 gpus
-    # devices = [0, 1]
-    devices = [0]
-    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(x) for x in devices])
+def main(args):
 
+    devices = args.gpu_device
+    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(x) for x in devices])
     world_size = len(devices)
+    
     mp.spawn(
-        main, 
+        dltrain, 
         args=([world_size]), 
         nprocs=world_size
     ) 
+    return
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='')
+    reqdarg = parser.add_argument_group('required arguments')
+    reqdarg = parser.add_argument('-g', dest = 'gpu_device', default = 0, type = int, nargs = "+", help='gpu device')
+    optarg = parser.add_argument_group('optional arguments')
+    args = parser.parse_args()
+    main(args)
+    

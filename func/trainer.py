@@ -30,6 +30,7 @@ class Trainer:
         gpu_id: int,
         data_dir: Path,
         val_interval: int, 
+        logger, 
         save_every: int = None,
         max_epochs: int = 500,
         
@@ -41,6 +42,7 @@ class Trainer:
         self.optimizer = optimizer
         self.save_every = save_every
         self.val_interval = val_interval
+        self.logger = logger
         self.model = DDP(model, device_ids=[gpu_id])
         self.max_epochs = max_epochs
         self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max = max_epochs)
@@ -69,7 +71,7 @@ class Trainer:
 
     def _run_epoch(self, epoch):
         b_sz = len(next(iter(self.train_loader))['image'][0])
-        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_loader)}")
+        self.logger.info(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_loader)}")
         self.train_loader.sampler.set_epoch(epoch)
 
         epoch_loss = 0.0
@@ -83,7 +85,7 @@ class Trainer:
             labels = labels.to(self.gpu_id)
             loss = self._run_batch(inputs, labels)
             epoch_loss += loss.item()
-            print(
+            self.logger.info(
                 f", train_loss: {loss.item():.4f}"
                 f", step time: {(time.time() - step_start):.4f}"
             )
@@ -92,7 +94,7 @@ class Trainer:
         self.lr_scheduler.step()
         epoch_loss /= step
         self.epoch_loss_values.append(epoch_loss)
-        print(f"epoch {epoch + 1} average loss: {epoch_loss:.4f}")
+        self.logger.info(f"epoch {epoch + 1} average loss: {epoch_loss:.4f}")
 
         if self.gpu_id == 0:
             self.writer.add_scalar('Loss/train', epoch_loss, epoch+1)
@@ -101,9 +103,10 @@ class Trainer:
         ckp = self.model.module.state_dict()
         PATH = self.checkpoint_dir.joinpath('best_checkpoint.pth')
         torch.save(ckp, PATH)
-        print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
+        self.logger.info(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
-    def _run_val(self, epoch): 
+    def _run_val(self, epoch):
+        self.logger.info('start validation')
         epoch_val_loss = 0.0
         best_epoch = 0
         self.model.eval()
@@ -124,23 +127,24 @@ class Trainer:
         epoch_val_loss /= val_step
         self.writer.add_scalar('Loss/valid', epoch_val_loss, epoch+1)
         if  self.min_val_loss > epoch_val_loss and epoch > 0: 
-            print(f'Validation Loss Decreased({self.min_val_loss:.6f}--->{epoch_val_loss:.6f}) \t Saving The Model')
+            self.logger.info(f'Validation Loss Decreased({self.min_val_loss:.6f}--->{epoch_val_loss:.6f}) \t Saving The Model')
             self.min_val_loss = epoch_val_loss
             self.best_metric_epoch = epoch + 1
-            print(f'Best Metric Epoch: {self.best_metric_epoch}')
+            self.logger.info(f'Best Metric Epoch: {self.best_metric_epoch}')
             # Saving State Dict
             ckp = self.model.module.state_dict()
             PATH = self.checkpoint_dir.joinpath('best_checkpoint.pth')
             torch.save(ckp, PATH)
-            print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
+            self.logger.info(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
         elif self.min_val_loss == -1.0:
+            # Saving the first loss
             self.min_val_loss = epoch_val_loss
-            print(self.min_val_loss)
+            self.logger.info(self.min_val_loss)
             ckp = self.model.module.state_dict()
             PATH = self.checkpoint_dir.joinpath('best_checkpoint.pth')
             torch.save(ckp, PATH)
-            print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
+            self.logger.info(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
     def train(self, max_epochs: int):
         for epoch in range(max_epochs):
@@ -149,18 +153,19 @@ class Trainer:
             #     self._save_checkpoint(epoch)
             if self.gpu_id == 0 and (epoch + 1) % self.val_interval == 0:
                 self._run_val(epoch)
-        print(self.best_metric_epoch, self.min_val_loss)
+        self.logger.info(self.best_metric_epoch, self.min_val_loss)
 
 def load_train_objs(input_ch_ct, 
                     input_csv, 
                     data_root,
+                    logger,
                     # transform_compose = 'default', 
                     split_ratio = [0.8, 0.1, 0.1], 
                     n_class = 19, 
                     sample_size = None, 
                     deterministic = False,
                     mean = None, std = None, 
-                    model_input_size = (1024, 1024)
+                    model_input_size = (1024, 1024), 
                     ):
 
     if mean is None: mean = 0.5
@@ -206,13 +211,14 @@ def load_train_objs(input_ch_ct,
     val_ds = TrDataset(val_ds, tv_v1_val)
     test_ds = TrDataset(test_ds, tv_v1_val)
 
-    print("train_ds size:", len(train_ds))
-    print("val_ds size:", len(val_ds))
-    print("val_ds size:", len(test_ds))
+    logger.info(f"train_ds size: {len(train_ds)}")
+    logger.info(f"val_ds size: {len(val_ds)}")
+    logger.info(f"val_ds size: {len(test_ds)}")
     
     # load model
     # model = simple_net(input_ch_ct, model_input_size)
     model = custom_resnet(input_ch_ct)
+    model = torch.compile(model)
     return train_ds, val_ds, test_ds, model
 
 def prepare_dataloader(dataset: Dataset, batch_size: int, num_workers: int, sampler = 'DDP'):
