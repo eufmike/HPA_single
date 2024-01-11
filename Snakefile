@@ -1,0 +1,60 @@
+import pandas as pd
+from pathlib import Path
+
+configfile: "/dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/smconfig.yaml"
+
+print("Config start")
+print(config)
+print("Config end")
+
+df = pd.read_csv(Path(config['img_ipdir']).joinpath('train.csv'))
+df = df[:25]
+idlist = df['ID'].tolist()
+
+PYTHON_SCRIPT= Path(config['script_dir']).joinpath('cellpose_singlecell_sm.py')
+OPFOLDER = 'train_rgb_c210_25'
+OPCSVALL = 'all_25.csv'
+# OPFOLDER = 'train_rgb_c210'
+# OPCSVALL = 'all.csv'
+
+rule all:
+    input:
+        # img = expand(config['img_opdir'] + '/train_rgb_c210/img/{imgid}.png', imgid = idlist),
+        # csv = expand(config['img_opdir'] + '/train_rgb_c210/csv/{imgid}.csv', imgid = idlist)
+        # csv = Path(config['img_opdir'], 'all.csv')
+        csv = Path(config['img_opdir'], OPCSVALL)
+rule convert:
+    # conda: 'mspytorch'
+    input:
+        # ipdir = config["img_ipdir"] + '/train/',
+        # imgid = "{imgid}",
+        # channel = "'red green blue'"
+        # r = config["img_ipdir"] + "/train/{imgid}_red.png",
+        # g = config["img_ipdir"] + "/train/{imgid}_green.png",
+        # b = config["img_ipdir"] + "/train/{imgid}_blue.png"
+    params:
+        ipdir = Path(config["img_ipdir"], 'train'), 
+        imgid = "{imgid}"
+        # img_ipdir=config["img_ipdir"],
+        # img_opdir=config["img_opdir"]
+    output:
+        img = Path(config["img_opdir"], OPFOLDER, "img", "{imgid}.png"),
+        csv = Path(config["img_opdir"], OPFOLDER, "csv", "{imgid}.csv")
+    shell:
+        f"python {str(PYTHON_SCRIPT)} " + \
+        " -i {params.ipdir} -id {params.imgid} " + \
+        " -o {output.img} -c {output.csv}"
+
+rule merge: 
+    input:
+        img = expand(Path(config['img_opdir'], OPFOLDER, 'img', '{imgid}.png'), imgid = idlist), 
+        csv = expand(Path(config['img_opdir'], OPFOLDER, 'csv', '{imgid}.csv'), imgid = idlist)
+    output:
+        csv = Path(config['img_opdir'], OPCSVALL)
+    run:
+        import pandas as pd
+        df = []
+        for csv_path in input.csv:
+            df.append(pd.read_csv(csv_path))
+        df = pd.concat(df, ignore_index=True)
+        df.to_csv(output.csv, index=False)

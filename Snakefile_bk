@@ -1,0 +1,29 @@
+import pandas as pd
+from pathlib import Path
+
+configfile: "/dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/smconfig.yaml"
+
+print("Config start")
+print(config)
+print("Config end")
+
+df = pd.read_csv(Path(config['img_ipdir']).joinpath('train.csv'))
+df = df[:25]
+idlist = df['ID'].tolist()
+
+PYTHON_SCRIPT: str(Path(config['script_dir']).joinpath('cellpose_singlecell_sm.py'))
+
+rule all:
+    input:
+        expand("{img_opdir}/train_rgb_c210/{sample}.png", img_opdir=config['img_opdir'], sample=idlist)
+
+rule convert:
+    input:
+        expand("{img_ipdir}/train/{{sample}}_{channel}.png", channel=['red', 'green', 'blue']) 
+    # params:
+        # img_ipdir=config["img_ipdir"]
+    #     img_opdir=config["img_opdir"]
+    output: config['img_opdir'] + "/train/{sample}.png"
+    shell:
+        "python {PYTHON_SCRIPT} -r {input.r} -g {input.g} -b {input.b} -o {output}"
+        # "echo {input}"
