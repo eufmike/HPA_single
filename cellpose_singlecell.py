@@ -47,7 +47,7 @@ def img_display(img):
         axarr[i].imshow(img[:, :, i])
         axarr[i].axis('off')
     plt.show()
-
+# %%
 new_row = []
 for i, row in tqdm(df[:10].iterrows()):
     file_id = row['ID']
@@ -80,4 +80,9 @@ for i, row in tqdm(df[:10].iterrows()):
 new_row = pd.concat(new_row,ignore_index=True)
 opcsvpath = datadir.joinpath('train_rgb_c210.csv')
 new_row.to_csv(opcsvpath, index=False)
+# %%
+
+file_id = '1cb6bd56-bba5-11e8-b2ba-ac1f6b6435d0'
+img = load_img(file_id, channels=[0, 1, 2, 3])
+img_display(img)
 # %%

@@ -11,7 +11,7 @@ df = pd.read_csv(Path(config['img_ipdir']).joinpath('train.csv'))
 # df = df[:25]
 idlist = df['ID'].tolist()
 
-PYTHON_SCRIPT= Path(config['script_dir']).joinpath('cellpose_singlecell_sm_merge_MTER_adjust_resize.py')
+PYTHON_SCRIPT= Path(config['script_dir']).joinpath('cellpose_singlecell_sm_merge_MTER.py')
 # OPFOLDER = 'train_rgb_c210_25_merge'
 # OPCSVALL = 'all_25_merge.csv'
 OPFOLDER = 'train_rgb_c210_merge'
