@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.colors import LinearSegmentedColormap
 
-# test
 # import cellpoose
 # combine files
 prjdir = Path("/dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data")
