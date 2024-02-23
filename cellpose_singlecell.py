@@ -8,8 +8,9 @@ from pathlib import Path
 from skimage.io import imread, imsave
 from cellpose import models, plot, utils
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib.colors import LinearSegmentedColormap
 
-# %%
 # import cellpoose
 # combine files
 prjdir = Path("/dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data")
@@ -25,7 +26,7 @@ print(df)
 
 # %%
 def load_img(ID, channels = [0, 1, 2, 3], total_ch = 4):
-    channel_name_dict = {
+    channel_name_dict = { 
         0: 'blue', # nucleus
         1: 'green', # protein
         2: 'red', # Microtubule
@@ -42,9 +43,17 @@ def load_img(ID, channels = [0, 1, 2, 3], total_ch = 4):
     return img
 
 def img_display(img):
+    channel_name_dict = { 
+        0: LinearSegmentedColormap.from_list("B", ["#000", "#00f"]), # nucleus
+        1: LinearSegmentedColormap.from_list("G", ["#000", "#0f0"]), # protein
+        2: LinearSegmentedColormap.from_list("R", ["#000", "#f00"]), # Microtubule
+        3: LinearSegmentedColormap.from_list("Y", ["#000", "#ff0"]) # ER
+    }
+
     fig, axarr = plt.subplots(1, img.shape[2], figsize = (20, 5))
     for i in range(img.shape[2]):
-        axarr[i].imshow(img[:, :, i])
+        cmap = channel_name_dict[i]
+        axarr[i].imshow(img[:, :, i], cmap=cmap)
         axarr[i].axis('off')
     plt.show()
 # %%
@@ -85,4 +94,15 @@ new_row.to_csv(opcsvpath, index=False)
 file_id = '1cb6bd56-bba5-11e8-b2ba-ac1f6b6435d0'
 img = load_img(file_id, channels=[0, 1, 2, 3])
 img_display(img)
+# %%
+img_merge = imread(HPAdir.joinpath('train_rgb_c210_merge', 'img', file_id + '.png'))
+img_merge = np.stack([img_merge[:, :, 2], img_merge[:, :, 1], img_merge[:, :, 0]], axis = -1)
+img_display(img_merge)
+# %%
+
+img_seg = imread(HPAdir.joinpath('train_rgb_c210_merge', 'seg', file_id + '_cp_output.png'))
+plt.imshow(img_seg)
+plt.axis('off')
+
+
 # %%
