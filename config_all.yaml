@@ -1,0 +1,25 @@
+dir:
+  project: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data 
+  data: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/BenchmarkDatasets/hpa-single-cell-image-classification
+
+train:
+  dataload:
+    GPU_num: 1
+    input_ch_ct: 4 # 3 or 4
+    n_class: 19
+    deterministic: False
+    model_input_size: [1024, 1024]
+    split_ratio: [0.8, 0.1, 0.1] # [train,val,test]
+    mean: [0.0540, 0.0530, 0.0804, 0.0806]
+    std: [0.1420, 0.0831, 0.1272, 0.1229]
+    dataset_csv: "train.csv"
+    dataset_folder: "train"
+    num_workers: 8
+    batch_size: 12 
+    # sampler: "DDP"
+  datatrain:  
+    save_every: True
+    val_interval: 5 
+    max_epochs: 100
+    lr: 1e-3
+    weight_decay: 1e-5
