@@ -7,7 +7,7 @@ train:
     GPU_num: 1
     input_ch_ct: 4 # 3 or 4
     n_class: 19
-    sample_size: 10000 
+    sample_size: 3000 
     deterministic: False
     model_input_size: [1024, 1024]
     split_ratio: [0.8, 0.1, 0.1] # [train,val,test]
@@ -15,10 +15,11 @@ train:
     std: [0.1420, 0.0831, 0.1272, 0.1229]
     dataset_csv: "train.csv"
     dataset_folder: "train"
-    num_workers: 8
+    num_workers: 4
     batch_size: 12 
     # sampler: "DDP"
   datatrain:  
+    model: "custom_resnet"
     save_every: True
     val_interval: 5 
     max_epochs: 100

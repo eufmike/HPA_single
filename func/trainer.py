@@ -2,7 +2,8 @@ from pathlib import Path
 import time
 from tqdm import tqdm
 from datetime import datetime
-from typing import Union
+from typing import Union, Tuple
+import importlib
 
 now = datetime.now()
 
@@ -13,6 +14,7 @@ import torchvision
 
 torchvision.disable_beta_transforms_warning()
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 torch.set_float32_matmul_precision("high")
@@ -25,8 +27,9 @@ from torchvision.transforms import Compose, ToTensor, Resize, v2
 from torch.utils.tensorboard import SummaryWriter
 
 from func.utility import loggergen
-from func.HPASCDataset import HPASCDataset, TrDataset
-from func.nets import simple_net, custom_resnet
+from func.HPASCDataset import HPASCDataset, HPASCDataset_RGB, TrDataset
+
+import lightning as L
 
 
 def get_value_channel(value, input_ch_ct, default):
@@ -72,10 +75,11 @@ class Train_Project:
         self.ch_mean = get_value_channel(
             self.dataload_config.get("mean"), self.input_ch_ct, 0.5
         )
+        self.ch_mean = [x / 255 for x in self.ch_mean]
         self.ch_std = get_value_channel(
             self.dataload_config.get("std"), self.input_ch_ct, 0.25
         )
-
+        self.ch_std = [x / 255 for x in self.ch_std]
         try:
             self.dataset_csv = Path(self.dataload_config.get("dataset_csv"))
         except KeyError:
@@ -86,7 +90,8 @@ class Train_Project:
         except KeyError:
             raise ValueError("data directory must be provided in the config file")
 
-        self.train_datasetdir = self.datadir.joinpath("train")
+        # self.train_datasetdir = self.datadir.joinpath("train")
+        self.train_datasetdir = Path(self.config["dir"]["img"])
 
         if not self.dataset_csv.is_absolute():
             self.dataset_csv = self.datadir.joinpath(self.dataset_csv)
@@ -116,7 +121,7 @@ class Train_Project:
             ]
         )
 
-        HPA_dataset = HPASCDataset(
+        HPA_dataset = HPASCDataset_RGB(
             input_csv=self.dataset_csv,
             root=self.train_datasetdir,
             input_ch_ct=self.input_ch_ct,
@@ -154,33 +159,32 @@ class Train_Project:
         self.logger.info(f"val_ds size: {len(val_ds)}")
         self.logger.info(f"test_ds size: {len(test_ds)}")
 
-        # load model
-        # model = simple_net(input_ch_ct, model_input_size)
-        self.model = custom_resnet(self.input_ch_ct)
-        self.model = torch.compile(self.model)
         return
 
-    def _prepare_dataloader(self, dataset, batch_size, num_workers):
+    def _prepare_dataloader(self, dataset, batch_size, num_workers, status="train"):
         self.logger.info(f"batch_size:{batch_size}")
         self.logger.info(f"num_workers:{num_workers}")
+
+        if status == "train":
+            shuffle = True
+        else:
+            shuffle = False
 
         dataloader = DataLoader(
             dataset,
             batch_size=batch_size,
             pin_memory=True,
             num_workers=num_workers,
-            shuffle=True,
+            shuffle=shuffle,
         )
         return dataloader
 
     def prepare_dataloader(self):
         self.train_loader = self._prepare_dataloader(
-            self.train_ds,
-            self.batch_size,
-            self.num_workers,
+            self.train_ds, self.batch_size, self.num_workers, status="Train"
         )
         self.val_loader = self._prepare_dataloader(
-            self.val_ds, self.batch_size, self.num_workers
+            self.val_ds, self.batch_size, self.num_workers, status="Val"
         )
         self.logger.info(len(self.train_loader))
         self.logger.info(len(self.val_loader))
@@ -191,53 +195,44 @@ class Trainer:
     def __init__(self, train_prj: Train_Project, gpu_device: list):
 
         # load from train_prj
-        self.train_loader = train_prj.train_loader
-        self.val_loader = train_prj.val_loader
-        self.datadir = train_prj.datadir
-        self.logger = train_prj.logger
+        self.train_prj = train_prj
+        self.train_loader = self.train_prj.train_loader
+        self.val_loader = self.train_prj.val_loader
+        self.datadir = self.train_prj.datadir
+        self.logger = self.train_prj.logger
 
         timestamp = now.strftime("%Y_%m_%d_%H_%M")
-        self.tblog_dir = train_prj.prjdir.joinpath("training_tblog", timestamp)
+        self.tblog_dir = self.train_prj.prjdir.joinpath("training_tblog", timestamp)
         self.writer = SummaryWriter(self.tblog_dir)
         print(self.tblog_dir)
 
-        self.checkpoint_dir = train_prj.prjdir.joinpath("checkpoints", timestamp)
+        self.checkpoint_dir = self.train_prj.prjdir.joinpath("checkpoints", timestamp)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         print(self.checkpoint_dir)
 
         # load train config
         try:
-            self.datatrain_config = train_prj.config["train"]["datatrain"]
+            self.datatrain_config = self.train_prj.config["train"]["datatrain"]
         except KeyError:
             raise ValueError("datatrain config must be provided in the config file")
 
         # get device
         self.gpu_count = train_prj.config.get("GPU_num", 1)
 
-        if gpu_device is None:
+        if gpu_device is not None:
             if self.gpu_count > len(gpu_device):
                 self.gpu_count = len(gpu_device)
             self.device = gpu_device[: self.gpu_count]
         else:
             self.device = [0]
-        # load model and send to device
         self.device = self.device[0]  # only for this code to call single GPU
-        self.model = train_prj.model.to(self.device)
 
         self.lr = float(self.datatrain_config.get("lr", 1e-3))
         self.weight_decay = float(self.datatrain_config.get("weight_decay", 1e-5))
 
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
-        )
         self.save_every = self.datatrain_config.get("save_every")
         self.val_interval = self.datatrain_config.get("val_interval")
         self.max_epochs = self.datatrain_config.get("max_epochs")
-        self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=self.max_epochs
-        )
-        self.criterion = nn.BCEWithLogitsLoss()
-
         self.best_metric_epoch = -1
         self.epoch_loss_values = []
         self.min_val_loss = -1.0
@@ -253,9 +248,8 @@ class Trainer:
 
     def _run_epoch(self, epoch):
         self.model.train()
-        b_sz = len(next(iter(self.train_loader))["image"])
         self.logger.info(
-            f"[GPU{self.device}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_loader)}"
+            f"[GPU{self.device}] Epoch {epoch} | Batchsize: {self.b_sz} | Steps: {len(self.train_loader)}"
         )
         # self.train_loader.sampler.set_epoch(epoch)
 
@@ -270,10 +264,10 @@ class Trainer:
             labels = labels.to(self.device)
             loss = self._run_batch(inputs, labels)
             epoch_loss += loss.item()
-            self.logger.info(
-                f", train_loss: {loss.item():.4f}"
-                f", step time: {(time.time() - step_start):.4f}"
-            )
+            # self.logger.info(
+            #     f", train_loss: {loss.item():.4f}"
+            #     f", step time: {(time.time() - step_start):.4f}"
+            # )
             step += 1
 
         self.lr_scheduler.step()
@@ -324,11 +318,37 @@ class Trainer:
         ckp = self.model.state_dict()
         ckppath = self.checkpoint_dir.joinpath("best_checkpoint.pth")
         torch.save(ckp, ckppath)
-        self.logger.info(f"Epoch {epoch} | Training checkpoint saved at {ckppath}")
+        # self.logger.info(f"Epoch {epoch} | Training checkpoint saved at {ckppath}")
         self.best_epoch = epoch
         return
 
+    def loadmodel(self):
+        model_name = self.datatrain_config.get("model")
+        model = getattr(
+            importlib.__import__("func.nets", fromlist=[model_name]), model_name
+        )
+        self.model = model(self.train_prj.input_ch_ct)
+
+        self.model = torch.compile(self.model)
+        self.model = self.model.to(self.device)
+
+        return
+
     def train(self):
+        # load model
+        self.loadmodel()
+        self.b_sz = len(next(iter(self.train_loader))["image"])
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+        self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=self.max_epochs * len(self.train_loader)
+        )
+        # self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     self.optimizer, patience=5, verbose=True
+        # )
+        self.criterion = nn.BCEWithLogitsLoss()
+
         for epoch in range(self.max_epochs):
             self._run_epoch(epoch)
             # if self.gpu_id == 0 and epoch % self.save_every == 0:
@@ -336,3 +356,186 @@ class Trainer:
             if (epoch + 1) % self.val_interval == 0:
                 self._run_val(epoch)
         self.logger.info(self.best_metric_epoch, self.min_val_loss)
+
+
+# from torchvision.models import resnet50
+from lightning.pytorch.callbacks import ModelSummary
+from lightning.pytorch.loggers import TensorBoardLogger
+
+
+class Trainer_ln:
+    def __init__(self, train_prj: Train_Project, gpu_device: list):
+
+        # load from train_prj
+        self.train_prj = train_prj
+        self.train_loader = self.train_prj.train_loader
+        self.val_loader = self.train_prj.val_loader
+        self.datadir = self.train_prj.datadir
+        self.logger = self.train_prj.logger
+
+        timestamp = now.strftime("%Y_%m_%d")
+        self.tblog_dir = self.train_prj.prjdir.joinpath("training_tblog_ln")
+        self.tblogger = TensorBoardLogger(
+            save_dir=self.tblog_dir, name=f"lightning_logs_{timestamp}"
+        )
+        # self.writer = SummaryWriter(self.tblog_dir)
+        # self.logger.info(self.tblog_dir)
+
+        # self.checkpoint_dir = self.train_prj.prjdir.joinpath(
+        #     "checkpoints_ln", timestamp
+        # )
+        # self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # self.logger.info(self.checkpoint_dir)
+
+        # load train config
+        try:
+            self.datatrain_config = self.train_prj.config["train"]["datatrain"]
+        except KeyError:
+            raise ValueError("datatrain config must be provided in the config file")
+
+        # get device
+        self.gpu_count = train_prj.dataload_config.get("GPU_num", 1)
+        self.logger.info(f"GPU_num: {self.gpu_count}")
+        self.logger.info(f"gpu_device: {gpu_device}")
+        if gpu_device is not None:
+            if self.gpu_count > len(gpu_device):
+                self.gpu_count = len(gpu_device)
+            self.device = gpu_device[: self.gpu_count]
+        else:
+            self.device = [0]
+        # self.device = self.device[0]  # only for this code to call single GPU
+        self.logger.info(f"self.device: {self.device}")
+
+        self.lr = float(self.datatrain_config.get("lr", 1e-3))
+        self.weight_decay = float(self.datatrain_config.get("weight_decay", 1e-5))
+
+        # self.save_every = self.datatrain_config.get("save_every")
+        self.val_interval = self.datatrain_config.get("val_interval")
+        self.max_epochs = self.datatrain_config.get("max_epochs")
+        # self.best_metric_epoch = -1
+        # self.epoch_loss_values = []
+        # self.min_val_loss = -1.0
+        return
+
+    def loadmodel(self):
+        model_name = self.datatrain_config.get("model")
+        model = getattr(
+            importlib.__import__("func.nets", fromlist=[model_name]), model_name
+        )
+        self.model = model(self.train_prj.input_ch_ct)
+        # print(self.model)
+        # self.model = torch.compile(self.model)
+        # self.model = self.model.to(self.device)
+        self.model = LitModel(
+            self.model,
+            lr=self.lr,
+            max_epochs=self.max_epochs,
+            stepsize=len(self.train_loader),
+        )
+        # self.model = LitModel(self.train_prj.input_ch_ct, lr=self.lr)
+        return
+
+    def train(self):
+        # load model
+        self.loadmodel()
+        print(self.device)
+        trainer = L.Trainer(
+            # default_root_dir=self.checkpoint_dir,
+            max_epochs=self.max_epochs,
+            log_every_n_steps=3,
+            check_val_every_n_epoch=self.val_interval,
+            callbacks=[ModelSummary(max_depth=2)],
+            # devices=self.device,
+            devices=self.gpu_count,
+            accelerator="gpu",
+            logger=self.tblogger,
+        )
+        trainer.fit(
+            model=self.model,
+            train_dataloaders=self.train_loader,
+            val_dataloaders=self.val_loader,
+        )
+
+        return
+
+
+class LitModel(L.LightningModule):
+    def __init__(self, model, lr, max_epochs, stepsize):
+        super().__init__()
+        self.model = model
+        self.lr = lr
+        self.max_epochs = max_epochs
+        self.stepsize = stepsize
+        self.training_step_outputs = []
+        self.validation_step_outputs = []
+        return
+
+    def training_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor:
+        x = batch["image"]
+        y = batch["label"]
+        y_hat = self.model(x)
+        loss = F.binary_cross_entropy_with_logits(y_hat, y)
+        self.training_step_outputs.append(loss)
+        self.log_dict(
+            {"train_loss_step": loss}, on_step=True, on_epoch=False, sync_dist=True
+        )
+        return loss
+
+    def on_train_epoch_end(self):
+        # avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        avg_loss = torch.stack(self.training_step_outputs).mean()
+        self.log_dict(
+            {"train_loss_epoch": avg_loss},
+            # on_step=False,
+            # on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        self.training_step_outputs.clear()
+        return
+
+    def validation_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor:
+        x = batch["image"]
+        y = batch["label"]
+        y_hat = self.model(x)
+        val_loss = F.binary_cross_entropy_with_logits(y_hat, y)
+        self.validation_step_outputs.append(val_loss)
+        self.log_dict(
+            {"val_loss_step": val_loss}, on_step=True, on_epoch=False, sync_dist=True
+        )
+        return val_loss
+
+    def on_validation_epoch_end(self):
+        # avg_val_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        avg_val_loss = torch.stack(self.validation_step_outputs).mean()
+        self.log_dict(
+            {"val_loss_epoch": avg_val_loss},
+            # on_step=False,
+            # on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        self.validation_step_outputs.clear()
+        return
+
+    def configure_optimizers(self) -> torch.optim.Optimizer:
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=self.max_epochs * self.stepsize
+        )
+        # self.criterion = nn.BCEWithLogitsLoss()
+        # return [optimizer], [lr_scheduler]
+        # return optimizer
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "name": "train/lr",
+                "scheduler": lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
+        }

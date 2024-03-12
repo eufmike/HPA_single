@@ -5,5 +5,6 @@ conda create -y -n mspytorch python=3.9
 # 03/08/2024
 conda install mamba
 mamba install pytorch==2.2.0 torchvision==0.17.0 pytorch-cuda=12.1 -c pytorch -c nvidia
-mamba install -y tqdm tensorboard pandas scikit-learn scikit-image matplotlib albumentations jupyterlab
+mamba install -y tqdm tensorboard pandas \
+    scikit-learn scikit-image matplotlib albumentations jupyterlab lightning nvitop
 

@@ -1,7 +1,7 @@
 #!/bin/bash
   
 # UGE PARAMETERS
-#$ -N HPA_all 
+#$ -N dev 
 #$ -pe smp 1
 ##### binding seems to cause jobs not allocated resource. https://jirasd.prd.nibr.novartis.net/servicedesk/customer/portal/22/NXSD-522623
 #####$ -binding linear:2
@@ -11,8 +11,8 @@
 #$ -l h_rt=3600
 #$ -l gpu_card=1
 #$ -j y
-#$ -o /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/output_HPA_all.txt
-#$ -e /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/errors_HPA_all.txt
+#$ -o /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/output_dev.txt
+#$ -e /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/errors_dev.txt
 # UGE PARAMETERS END
 
 # make sure that the NSLOTS number here matches '#$ -pe smp N' argument above
@@ -63,7 +63,7 @@ which python
 
 # SCRIPT=$1
 # source $SCRIPT
-source /dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/run_all.sh $CUDA_VISIBLE_DEVICES
+source /dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/run_dev.sh $CUDA_VISIBLE_DEVICES
 
 echo ">>>END COMMAND OUTPUT"
 

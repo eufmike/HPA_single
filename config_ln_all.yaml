@@ -3,10 +3,11 @@ dir:
   data: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/BenchmarkDatasets/hpa-single-cell-image-classification
 
 train:
-  dataload:
-    GPU_num: 1
+  dataload: 
+    GPU_num: 2 
     input_ch_ct: 4 # 3 or 4
     n_class: 19
+    # sample_size: 3000 
     deterministic: False
     model_input_size: [1024, 1024]
     split_ratio: [0.8, 0.1, 0.1] # [train,val,test]
@@ -17,7 +18,7 @@ train:
     num_workers: 8
     batch_size: 12 
     # sampler: "DDP"
-  datatrain:
+  datatrain: 
     model: "custom_resnet" 
     save_every: True
     val_interval: 5 
