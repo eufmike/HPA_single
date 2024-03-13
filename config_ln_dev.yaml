@@ -1,6 +1,7 @@
 dir:
   project: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data 
   data: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/BenchmarkDatasets/hpa-single-cell-image-classification
+  img: /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/code_test/img
 
 train:
   dataload: 
@@ -11,8 +12,10 @@ train:
     deterministic: False
     model_input_size: [1024, 1024]
     split_ratio: [0.8, 0.1, 0.1] # [train,val,test]
-    mean: [0.0540, 0.0530, 0.0804, 0.0806]
-    std: [0.1420, 0.0831, 0.1272, 0.1229]
+    # mean: [0.0540, 0.0530, 0.0804, 0.0806]
+    # std: [0.1420, 0.0831, 0.1272, 0.1229]
+    mean: [24.96067158, 16.44201136, 15.88478792, 25.09126955]
+    std: [37.79176644, 25.3360184, 41.23894586, 36.75068364]
     dataset_csv: "train.csv"
     dataset_folder: "train"
     num_workers: 8

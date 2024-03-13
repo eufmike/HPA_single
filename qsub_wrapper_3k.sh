@@ -7,12 +7,12 @@
 #####$ -binding linear:2
 #$ -cwd
 #$ -S /bin/bash
-#$ -l m_mem_free=32G
-#$ -l h_rt=3600
+#$ -l m_mem_free=128G
+#$ -l h_rt=168:00:00
 #$ -l gpu_card=1
 #$ -j y
-#$ -o /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/output_hpa_3k.txt
-#$ -e /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/errors_hpa_3k.txt
+#$ -o /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/
+#$ -e /dlab/ldrive/CBT/USLJ-DSDE_DATA-I10008/shihch3/projects/HPA_single_data/qsub_log/
 # UGE PARAMETERS END
 
 # make sure that the NSLOTS number here matches '#$ -pe smp N' argument above
