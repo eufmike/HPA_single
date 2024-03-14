@@ -1,5 +1,6 @@
 #!/bin/bash
 
+DATASET=all 
 # UGE PARAMETERS
 #$ -N hpa_3k64ln
 #$ -pe smp 4 
@@ -25,7 +26,6 @@
 # export NUMEXPR_MAX_THREADS=$NSLOTS
 # export VECLIB_MAXIMUM_THREADS=$NSLOTS
 
-  
 # Set our environment
 # Make sure that we have our modules in the MODULEPATH
 export MODULEPATH=/usr/prog/modules/all:/cm/shared/modulefiles:$MODULEPATH
@@ -63,7 +63,7 @@ which python
 
 # SCRIPT=$1
 # source $SCRIPT
-source /dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/run_all_ln.sh $CUDA_VISIBLE_DEVICES
+source /dlab/ldrive/CBT/USLJ-DSDE-I10007/DSDE/shihch3/code/p/python/HPA_single/CLI/run_ln.sh $CUDA_VISIBLE_DEVICES $DATASET 
 
 echo ">>>END COMMAND OUTPUT"
 

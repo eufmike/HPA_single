@@ -190,6 +190,13 @@ class Train_Project:
         self.logger.info(len(self.val_loader))
         return
 
+    def prepare_pred_dataloader(self):
+        self.test_loader = self._prepare_dataloader(
+            self.test_ds, self.batch_size, self.num_workers, status="Test"
+        )
+        self.logger.info(len(self.test_loader))
+        return
+
 
 class Trainer:
     def __init__(self, train_prj: Train_Project, gpu_device: list):
@@ -361,6 +368,9 @@ class Trainer:
 # from torchvision.models import resnet50
 from lightning.pytorch.callbacks import ModelSummary
 from lightning.pytorch.loggers import TensorBoardLogger
+from torchmetrics import MeanMetric
+from torchmetrics.classification import MultilabelF1Score
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 
 
 class Trainer_ln:
@@ -368,8 +378,6 @@ class Trainer_ln:
 
         # load from train_prj
         self.train_prj = train_prj
-        self.train_loader = self.train_prj.train_loader
-        self.val_loader = self.train_prj.val_loader
         self.datadir = self.train_prj.datadir
         self.logger = self.train_prj.logger
 
@@ -378,14 +386,6 @@ class Trainer_ln:
         self.tblogger = TensorBoardLogger(
             save_dir=self.tblog_dir, name=f"lightning_logs_{timestamp}"
         )
-        # self.writer = SummaryWriter(self.tblog_dir)
-        # self.logger.info(self.tblog_dir)
-
-        # self.checkpoint_dir = self.train_prj.prjdir.joinpath(
-        #     "checkpoints_ln", timestamp
-        # )
-        # self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        # self.logger.info(self.checkpoint_dir)
 
         # load train config
         try:
@@ -403,7 +403,6 @@ class Trainer_ln:
             self.device = gpu_device[: self.gpu_count]
         else:
             self.device = [0]
-        # self.device = self.device[0]  # only for this code to call single GPU
         self.logger.info(f"self.device: {self.device}")
 
         self.lr = float(self.datatrain_config.get("lr", 1e-3))
@@ -412,62 +411,115 @@ class Trainer_ln:
         # self.save_every = self.datatrain_config.get("save_every")
         self.val_interval = self.datatrain_config.get("val_interval")
         self.max_epochs = self.datatrain_config.get("max_epochs")
-        # self.best_metric_epoch = -1
-        # self.epoch_loss_values = []
-        # self.min_val_loss = -1.0
         return
 
-    def loadmodel(self):
+    def loadmodel(self, status="train", path_checkpoints=None):
         model_name = self.datatrain_config.get("model")
-        model = getattr(
+        model_func = getattr(
             importlib.__import__("func.nets", fromlist=[model_name]), model_name
         )
-        self.model = model(self.train_prj.input_ch_ct)
-        # print(self.model)
-        # self.model = torch.compile(self.model)
-        # self.model = self.model.to(self.device)
-        self.model = LitModel(
-            self.model,
-            lr=self.lr,
-            max_epochs=self.max_epochs,
-            stepsize=len(self.train_loader),
-        )
-        # self.model = LitModel(self.train_prj.input_ch_ct, lr=self.lr)
+        model = model_func(self.train_prj.input_ch_ct)
+        self.logger.info(model)
+
+        if status == "train":
+            model = LitModel(
+                model,
+                lr=self.lr,
+                max_epochs=self.max_epochs,
+                stepsize=len(self.train_loader),
+            )
+        elif status == "pred":
+            model = LitModel.load_from_checkpoint(
+                checkpoint_path=path_checkpoints,
+                model=model,
+                lr=self.lr,
+                max_epochs=self.max_epochs,
+            )
+        self.model = model
         return
 
-    def train(self):
+    def train(self, path_checkpoints=None):
+        self.train_loader = self.train_prj.train_loader
+        self.val_loader = self.train_prj.val_loader
         # load model
-        self.loadmodel()
+        self.loadmodel(status="train")
         print(self.device)
+
+        model_checkpoint = ModelCheckpoint(
+            monitor="valid/f1",
+            mode="max",
+            filename="ckpt_{epoch:03d}-vloss_{valid/loss:.4f}_vf1_{valid/f1:.4f}",
+            auto_insert_metric_name=False,
+        )
+        lr_rate_monitor = LearningRateMonitor(logging_interval="epoch")
+
         trainer = L.Trainer(
             # default_root_dir=self.checkpoint_dir,
             max_epochs=self.max_epochs,
             log_every_n_steps=3,
             check_val_every_n_epoch=self.val_interval,
-            callbacks=[ModelSummary(max_depth=2)],
+            # callbacks=[ModelSummary(max_depth=2)],
             # devices=self.device,
             devices=self.gpu_count,
             accelerator="gpu",
             logger=self.tblogger,
-        )
-        trainer.fit(
-            model=self.model,
-            train_dataloaders=self.train_loader,
-            val_dataloaders=self.val_loader,
+            callbacks=[model_checkpoint, lr_rate_monitor],
         )
 
+        if path_checkpoints is None:
+            trainer.fit(
+                model=self.model,
+                train_dataloaders=self.train_loader,
+                val_dataloaders=self.val_loader,
+            )
+        else:
+            trainer.fit(
+                model=self.model,
+                ckpt_path=path_checkpoints,
+                train_dataloaders=self.train_loader,
+                val_dataloaders=self.val_loader,
+            )
         return
+
+    def prediction(self, path_checkpoints):
+        self.test_loader = self.train_prj.test_loader
+        trainer = L.Trainer(
+            accelerator="gpu",
+            devices=1,
+            enable_checkpointing=False,
+            inference_mode=True,
+        )
+        self.loadmodel(status="pred", path_checkpoints=path_checkpoints)
+        # self.loadmodel(status="train")
+        self.model.eval()
+        predictions = trainer.predict(self.model, dataloaders=self.test_loader)
+        print(predictions)
 
 
 class LitModel(L.LightningModule):
-    def __init__(self, model, lr, max_epochs, stepsize):
+    def __init__(
+        self, model, lr, max_epochs, stepsize=None, f1_metric_threshold: float = 0.4
+    ):
         super().__init__()
+        self.save_hyperparameters()
+
         self.model = model
         self.lr = lr
         self.max_epochs = max_epochs
         self.stepsize = stepsize
         self.training_step_outputs = []
         self.validation_step_outputs = []
+
+        self.loss_fn = nn.BCEWithLogitsLoss()
+
+        self.mean_train_loss = MeanMetric()
+        self.mean_train_f1 = MultilabelF1Score(
+            num_labels=19, average="macro", threshold=0.4
+        )
+        self.mean_valid_loss = MeanMetric()
+        self.mean_valid_f1 = MultilabelF1Score(
+            num_labels=19, average="macro", threshold=0.4
+        )
         return
 
     def training_step(
@@ -476,11 +528,17 @@ class LitModel(L.LightningModule):
         x = batch["image"]
         y = batch["label"]
         y_hat = self.model(x)
-        loss = F.binary_cross_entropy_with_logits(y_hat, y)
+        loss = self.loss_fn(y_hat, y)
         self.training_step_outputs.append(loss)
         self.log_dict(
             {"train_loss_step": loss}, on_step=True, on_epoch=False, sync_dist=True
         )
+
+        self.mean_train_loss(loss, weight=x.shape[0])
+        self.mean_train_f1(y_hat, y)
+
+        self.log("train/batch_loss", self.mean_train_loss, prog_bar=True)
+        self.log("train/batch_f1", self.mean_train_f1, prog_bar=True)
         return loss
 
     def on_train_epoch_end(self):
@@ -493,6 +551,10 @@ class LitModel(L.LightningModule):
             prog_bar=True,
             sync_dist=True,
         )
+        self.log("train/loss", self.mean_train_loss, prog_bar=True)
+        self.log("train/f1", self.mean_train_f1, prog_bar=True)
+        self.log("step", self.current_epoch)
+
         self.training_step_outputs.clear()
         return
 
@@ -502,11 +564,15 @@ class LitModel(L.LightningModule):
         x = batch["image"]
         y = batch["label"]
         y_hat = self.model(x)
-        val_loss = F.binary_cross_entropy_with_logits(y_hat, y)
+        val_loss = self.loss_fn(y_hat, y)
         self.validation_step_outputs.append(val_loss)
         self.log_dict(
             {"val_loss_step": val_loss}, on_step=True, on_epoch=False, sync_dist=True
         )
+
+        self.mean_valid_loss.update(val_loss, weight=x.shape[0])
+        self.mean_valid_f1.update(y_hat, y)
+
         return val_loss
 
     def on_validation_epoch_end(self):
@@ -519,8 +585,18 @@ class LitModel(L.LightningModule):
             prog_bar=True,
             sync_dist=True,
         )
+        self.log("valid/loss", self.mean_valid_loss, prog_bar=True)
+        self.log("valid/f1", self.mean_valid_f1, prog_bar=True)
+        self.log("step", self.current_epoch)
+
         self.validation_step_outputs.clear()
         return
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        x = batch["image"]
+        y = batch["label"]
+        y_hat = self.model(x)
+        return y_hat
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
